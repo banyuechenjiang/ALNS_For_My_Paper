@@ -11,7 +11,7 @@
   "delta_step": 1.0,
   "max_time_horizon": 400,
   "planner_buffer": 0,
-  "alns_max_iterations": 100,
+  "alns_max_iterations": 400,
   "alns_initial_temp": 10.0,
   "alns_cooling_rate": 0.98,
   "alns_segment_size": 20,
@@ -30,9 +30,9 @@
   "alns_plot_convergence": false,
   "conflict_wait_threshold": 6,
   "alns_deadlock_max_wait": 10,
-  "scenario2_map_width": 12,
-  "scenario2_map_height": 12,
+  "scenario2_map_width": 20,
+  "scenario2_map_height": 20,
   "scenario2_obstacle_ratio": 0.1,
-  "scenario2_num_agvs": 5,
+  "scenario2_num_agvs": 6,
   "buffer": 1
 }

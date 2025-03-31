@@ -1,4 +1,4 @@
-# Benchmark.py-v7
+# Benchmark.py-v8
 """
 实现基准算法：优先顺序规划器 (Prioritized Sequential Planner)。
 该算法按固定优先级（AGV ID 顺序）依次规划每个 AGV 的路径，
@@ -16,7 +16,10 @@
              但可能不如 ALNS 的全局冲突解决机制鲁棒。
     - 其他约束: 与 ALNS 类似，依赖 TWA* 和 Path 结构来满足。
 
-版本变更 (v6 -> v7):
+版本变更 (v7 -> v8):
+- **修正:** 修改了 plan 方法中对 TWAStarPlanner.plan 的调用，移除了不再被接受的 'buffer' 关键字参数，
+           以兼容 Planner.py v15+ 的接口。
+- 保持了 v7 的其他文档和功能。
 - 添加了详细的模块和类/方法文档字符串，明确其作为基准算法的角色和与论文的关联。
 - 在 plan 方法中添加了内联注释，解释其序贯规划逻辑和约束处理方式。
 - 清理了不再需要的注释。
@@ -25,11 +28,13 @@
 import time
 from typing import List, Tuple, Dict, Optional
 
-# --- 标准导入 (使用 v8 的 DataTypes 和 v14 的 Planner) ---
+# --- 标准导入 (假设依赖项路径正确) ---
 try:
     from Map import GridMap, Node
-    from DataTypes import Task, Path, TimeStep, State, DynamicObstacles, Solution, CostDict, calculate_tij # 导入 v8
-    from Planner import TWAStarPlanner # 导入 v14
+    # 依赖 v9+ 的 DataTypes
+    from DataTypes import Task, Path, TimeStep, State, DynamicObstacles, Solution, CostDict, calculate_tij
+    # 依赖 v15+ 的 Planner
+    from Planner import TWAStarPlanner
 except ImportError as e:
     print(f"错误: 导入 Benchmark 依赖项失败: {e}")
     # 定义临时的占位符类型以便静态分析
@@ -44,23 +49,16 @@ except ImportError as e:
     TimeStep = int
 
 
-# --- 优先顺序规划器类 (v7 - 增强文档和模型关联) ---
+# --- 优先顺序规划器类 (v8 - 修正 plan 调用) ---
 class PrioritizedPlanner:
     """
     实现简单的优先顺序规划基准算法。
-    按固定优先级（例如 AGV ID 顺序）依次规划每个 AGV 的路径，
-    并将已规划的路径视为后续 AGV 的动态障碍。
+    ... (类文档字符串保持不变) ...
     """
     def __init__(self, grid_map: 'GridMap', tasks: List['Task'], planner: 'TWAStarPlanner', v: float, delta_step: float):
         """
         初始化优先规划器。
-
-        Args:
-            grid_map (GridMap): 地图对象。
-            tasks (List[Task]): 所有 AGV 的任务列表。
-            planner (TWAStarPlanner): 用于规划单个路径的 TWA* 实例 (论文 3.5.1)。
-            v (float): AGV 速度 (对应模型参数 v)。
-            delta_step (float): 时间步长 (对应模型参数 δ_step)。
+        ... (方法文档字符串和实现保持不变) ...
         """
         # --- 依赖项检查 (假设导入成功) ---
         # 类型检查
@@ -78,7 +76,7 @@ class PrioritizedPlanner:
         self.delta_step = float(delta_step) # 确保是浮点数
         self.num_agvs = len(tasks)
 
-    # --- 核心规划方法 (v7 - 增强文档) ---
+    # --- 核心规划方法 (v8 - 修正对 Planner.plan 的调用) ---
     def plan(self, cost_weights: Tuple[float, float, float], max_time: TimeStep, time_limit_per_agent: Optional[float] = None) -> Tuple[Optional['Solution'], float, 'CostDict']:
         """
         执行优先顺序规划。
@@ -122,6 +120,9 @@ class PrioritizedPlanner:
             # 关键：将之前 AGV 的路径 (存储在 dynamic_obstacles) 传入
             # TWA* 内部处理动态障碍，尝试满足节点冲突约束 (论文公式 12)
             try:
+                 # ==========================================================
+                 # --- 修改点 (v8): 移除了 'buffer' 参数 ---
+                 # ==========================================================
                  path: Optional[Path] = self.planner.plan(
                      grid_map=self.grid_map,
                      task=task,
@@ -130,23 +131,30 @@ class PrioritizedPlanner:
                      cost_weights=cost_weights, # TWA* 优化时使用的权重
                      v=self.v,
                      delta_step=self.delta_step,
-                     buffer=0, # Benchmark 通常不使用 buffer
+                     # buffer=0, <--- 移除此行
                      start_time=0,
-                     time_limit=time_limit_per_agent
+                     time_limit=time_limit_per_agent,
+                     bounding_box=None # Benchmark 不使用区域分割，明确传入 None 或省略让其取默认值
                  )
+                 # ==========================================================
                  # 检查返回类型
                  if path is not None and not isinstance(path, Path):
                       print(f"    错误: Planner 为 AGV {agv_id} 返回了非 Path 类型: {type(path)}。规划失败。")
                       all_success = False; break
+            except TypeError as te: # 专门捕获 TypeError 帮助调试
+                 print(f"    错误: 调用 Planner 为 AGV {agv_id} 规划时发生 TypeError (很可能是参数不匹配): {te}")
+                 import traceback
+                 traceback.print_exc()
+                 all_success = False; break
             except Exception as e:
-                 print(f"    错误: 调用 Planner 为 AGV {agv_id} 规划时发生异常: {e}")
+                 print(f"    错误: 调用 Planner 为 AGV {agv_id} 规划时发生未知异常: {e}")
                  import traceback
                  traceback.print_exc()
                  all_success = False; break
 
             call_dur = time.perf_counter() - t_start_call
 
-            # --- 处理规划结果 ---
+            # --- 处理规划结果 (保持不变) ---
             if path and path.sequence: # 检查路径和序列是否有效
                 solution[agv_id] = path # 将成功规划的路径加入解
                 # 将新路径添加到动态障碍中，供后续 AGV 避让
@@ -158,7 +166,7 @@ class PrioritizedPlanner:
                 try:
                     # 确保 path 是 Path 类型再调用 get_cost
                     if isinstance(path, Path):
-                        # 调用 v8 的 Path.get_cost
+                        # 调用 Path.get_cost
                         path_cost_dict = path.get_cost(self.grid_map, *cost_weights, self.v, self.delta_step)
                         if path_cost_dict.get('total', float('inf')) == float('inf'):
                              print(f"    错误: AGV {agv_id} 路径成本计算为 Inf。规划失败。")
@@ -187,7 +195,7 @@ class PrioritizedPlanner:
 
         print(f"--- 基准规划完成，总耗时: {total_duration:.4f}s ---")
 
-        # --- 返回结果 ---
+        # --- 返回结果 (保持不变) ---
         # 检查是否所有 AGV 都成功规划且最终成本有效
         if all_success and len(solution) == self.num_agvs and total_cost_dict.get('total', float('inf')) != float('inf'):
              # 返回成功结果
@@ -196,9 +204,10 @@ class PrioritizedPlanner:
              # 返回失败状态
              return None, total_duration, inf_dict
 
-    # --- 成本计算辅助方法 (未使用，保留用于参考或未来扩展) ---
+    # --- 成本计算辅助方法 (保持不变) ---
     def _calculate_total_cost(self, solution: 'Solution', cost_weights: Tuple[float, float, float]) -> 'CostDict':
-        """(内部辅助) 计算解决方案的总成本及各分项成本 (适配 v8 Path.get_cost)。"""
+        """(内部辅助) 计算解决方案的总成本及各分项成本。"""
+        # ... (实现保持不变) ...
         total_cost_dict: CostDict = {'total': 0.0, 'travel': 0.0, 'turn': 0.0, 'wait': 0.0}
         inf_dict: CostDict = {'total': float('inf'), 'travel': float('inf'), 'turn': float('inf'), 'wait': float('inf')}
         if not solution or not isinstance(solution, dict): return inf_dict
@@ -233,13 +242,13 @@ class PrioritizedPlanner:
         else:
              return inf_dict
 
-# --- 示例用法 (保持不变，使用 v11 的 InstanceGenerator 和 v14 的 Planner) ---
+# --- 示例用法 (保持不变，确保能正确运行) ---
 if __name__ == '__main__':
-    print("--- Benchmark (Prioritized Planner) 测试 (v7 - Enhanced Docs & Model Links) ---")
+    print("--- Benchmark (Prioritized Planner) 测试 (v8 - Fixed Planner Call) ---")
     # --- 标准导入 ---
     import sys
     try:
-        from InstanceGenerator import load_fixed_scenario_1 # 导入 v11
+        from InstanceGenerator import load_fixed_scenario_1 # 导入 v11+
     except ImportError as e:
         print(f"错误: 导入 InstanceGenerator 失败: {e}")
         sys.exit(1)
@@ -252,9 +261,9 @@ if __name__ == '__main__':
         sys.exit(1)
     test_map_s1, test_tasks_s1 = instance_data_s1
 
-    # 创建 Planner 实例 (使用 v14)
+    # 创建 Planner 实例 (使用 v15+)
     try:
-        planner_instance = TWAStarPlanner() # 使用 v14
+        planner_instance = TWAStarPlanner() # 使用 v15+
     except NameError:
         print("错误: TWAStarPlanner 类未定义，请确保 Planner.py 已正确导入。")
         sys.exit(1)
@@ -263,7 +272,7 @@ if __name__ == '__main__':
          sys.exit(1)
 
 
-    # 创建 Benchmark 实例 (使用 v7)
+    # 创建 Benchmark 实例 (使用 v8)
     try:
         # 使用顶层已定义的 PrioritizedPlanner 类
         benchmark_planner = PrioritizedPlanner(
@@ -298,7 +307,7 @@ if __name__ == '__main__':
          traceback.print_exc()
          sys.exit(1)
 
-    # --- 打印结果 ---
+    # --- 打印结果 (保持不变) ---
     if final_solution_test:
         print(f"\nBenchmark 规划成功！总耗时: {duration_test:.4f}s")
         if isinstance(cost_dict_result_test, dict):
